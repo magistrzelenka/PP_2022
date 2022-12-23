@@ -1,0 +1,206 @@
+from __future__ import print_function
+
+import os.path
+
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+
+SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
+
+SAMPLE_SPREADSHEET_ID = '1AyPOxe69Fqx-nv52K-I83UAspFbYoBN10vSkrgbrBvs'
+SAMPLE_RANGE_NAME = 'DATA!B2:BP27'
+
+
+def compatibility_sys(profile1, profile2):
+    # упрощенная схема ЭС
+    if validity(profile1) == 1 and validity(profile2) == 1:
+        if exp_format(profile1, profile2) == 1:
+            if temperament(profile1) != temperament(profile2):
+                if exp_social(profile1, profile2) == 1 or exp_roles(profile1, profile2) == 1:
+                    return 1
+    else:
+        return -1
+
+
+def validity(profile):
+    # Система, определяющая "истинность" заполнения анкеты
+    V_questions_YES = [6, 24, 36]
+    V_questions_NO = [12, 18, 30, 42, 48, 54]
+    SUS = 0
+    for question in V_questions_YES:
+        if profile[question] == "ДА":
+            SUS += 1
+
+    for question in V_questions_NO:
+        if profile[question] == "НЕТ":
+            SUS += 1
+
+    if SUS > 7:
+        return 0
+    else:
+        return 1
+
+
+def exp_format(profile1, profile2):
+    # Система, определяющая согласованность ожиданий от формата отношений
+    if profile1[1] == profile2[1]:
+        return 1
+    else:
+        return 0
+
+
+def temperament(profile):
+    # Система, определяющая темперамент человека, по опрснику Айзенка
+    extraversion = 0
+    E_questions_YES = [3, 8, 10, 13, 17, 22, 25, 27, 39, 44, 46, 49, 53, 56, 58]
+    E_questions_NO = [5, 15, 20, 29, 32, 34, 37, 41, 51]
+
+    for question in E_questions_YES:
+        if profile[question] == "ДА":
+            extraversion += 1
+        else:
+            extraversion -= 1
+
+    for question in E_questions_NO:
+        if profile[question] == "НЕТ":
+            extraversion += 1
+        else:
+            extraversion -= 1
+
+    neuroticism = 0
+    N_questions = [2, 4, 7, 9, 11, 14, 16, 19, 21, 23, 26, 28, 31, 33, 35, 38, 40, 43, 45, 47, 50, 52, 55, 57]
+
+    for question in N_questions:
+        if profile[question] == "ДА":
+            neuroticism += 1
+        else:
+            neuroticism -= 1
+
+    if extraversion >= 0 and neuroticism >= 0:
+        return 'H'
+    elif extraversion <= 0 and neuroticism >= 0:
+        return 'M'
+    elif extraversion <= 0 and neuroticism <= 0:
+        return 'F'
+    elif extraversion >= 0 and neuroticism <= 0:
+        return 'S'
+
+
+def exp_social(profile1, profile2):
+    # Система, проверяющая удовлетворенность в социальных ожиданиях
+    social_ch1 = []
+    social_ch2 = []
+    for question in range(59, 64):
+        if profile1[question] == "ДА":
+            social_ch1.append(question)
+        if profile2[question] == "ДА":
+            social_ch2.append(question)
+
+    if profile1[64] == "Образованность":
+        social_ex1 = 63
+    elif profile1[64] == "Внешность":
+        social_ex1 = 59
+    elif profile1[64] == "Хороший заработок":
+        social_ex1 = 60
+    elif profile1[64] == "Здоровое тело":
+        social_ex1 = 61
+    elif profile1[64] == "Социальный статус":
+        social_ex1 = 62
+
+    if profile2[64] == "Образованность":
+        social_ex2 = 63
+    elif profile2[64] == "Внешность":
+        social_ex2 = 59
+    elif profile2[64] == "Хороший заработок":
+        social_ex2 = 60
+    elif profile2[64] == "Здоровое тело":
+        social_ex2 = 61
+    elif profile2[64] == "Социальный статус":
+        social_ex2 = 62
+
+    if (social_ex1 in social_ch2) or (social_ex2 in social_ch1):
+        return 1
+    else:
+        return 0
+
+
+def exp_roles(profile1, profile2):
+    # Система, определяющая согласованность ожиданий функц.-ролевых отношений
+    if profile1[65] == profile2[65]:
+        return 1
+    else:
+        return 0
+
+
+def scan_profiles_and_answer(values):
+    p1 = input()
+    p2 = input()
+    P1 = []
+    P2 = []
+    for i in values:
+        if i[1] == p1:
+            P1 = values[i][1:]
+        elif i[1] == p2:
+            P2 = values[i][1:]
+    return compatibility_sys(P1, P2)
+
+
+def main():
+    creds = None
+
+    if os.path.exists('token.json'):
+        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(
+                'credentials.json', SCOPES)
+            creds = flow.run_local_server(port=0)
+
+        with open('token.json', 'w') as token:
+            token.write(creds.to_json())
+
+    try:
+        service = build('sheets', 'v4', credentials=creds)
+
+        sheet = service.spreadsheets()
+        result = sheet.values().get(spreadsheetId=SAMPLE_SPREADSHEET_ID,
+                                    range=SAMPLE_RANGE_NAME).execute()
+        values = result.get('values', [])
+
+        if not values:
+            print('No data found.')
+            return
+
+        Stat = 0
+        Lie = 0
+        num_of_people = len(values)
+        print(num_of_people)
+        for first_person_in_pair in range(0, num_of_people, 2):
+            person1_ID = first_person_in_pair
+            person2_ID = first_person_in_pair + 1
+
+            profile1 = values[person1_ID][1:]
+            profile2 = values[person2_ID][1:]
+
+            if validity(profile1) == 0 or validity(profile2) == 0:
+                Lie += 1
+            elif compatibility_sys(profile1, profile2) == 1:
+                Stat += 1
+
+        print('Процент "правильности" результата программы', Stat/((num_of_people)//2) * 100, '%')
+        print('Процент недостоверных анкет', Lie/num_of_people * 100, '%')
+
+        # scan_profiles_and_answer(values)
+
+    except HttpError as err:
+        print(err)
+
+
+if __name__ == '__main__':
+    main()
